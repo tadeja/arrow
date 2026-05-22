@@ -520,6 +520,11 @@ services:
     command: >
       /bin/bash -c "
         /arrow/ci/scripts/cpp_build.sh /arrow /build &&
+        echo '=== GH-49767 reloc diagnostic ===' ;
+        readelf -rW /build/cpp/release/arrow-flight-test | grep envoy_annotations_deprecated ;
+        readelf -rW /build/cpp/release/arrow-flight-sql-test | grep envoy_annotations_deprecated ;
+        nm -D --size-sort /build/cpp/release/arrow-flight-test | grep envoy_annotations_deprecated ;
+        nm -D --size-sort /build/cpp/release/arrow-flight-sql-test | grep envoy_annotations_deprecated ;
         sudo /arrow/cpp/src/arrow/flight/sql/odbc/install/unix/install_odbc.sh /usr/local/lib/libarrow_flight_sql_odbc.so &&
         /arrow/ci/scripts/cpp_test.sh /arrow /build"
 
