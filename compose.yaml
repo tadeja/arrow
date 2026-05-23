@@ -504,18 +504,6 @@ services:
       ARROW_ACERO: "OFF"
       ARROW_AZURE: "OFF"
       ARROW_BUILD_TYPE: RELEASE
-      # GH-49767 workaround: gRPC v1.76.0 bundles Envoy proto descriptors
-      # that GCC sometimes places in .rodata while still emitting
-      # R_X86_64_RELATIVE relocations targeting them. The dynamic linker
-      # cannot write to .rodata during _dl_relocate_object and crashes
-      # before main(). -Wl,-z,notext was a no-op because ld doesn't
-      # classify R_X86_64_RELATIVE as a text relocation. -no-pie at link
-      # asks ld to resolve relocations at link time and produce a
-      # non-PIE binary, removing R_X86_64_RELATIVE from .rela.dyn.
-      # Arrow forces -fPIC at compile via SetupCxxFlags.cmake; PIC objects
-      # link cleanly into a non-PIE executable, the linker just bakes in
-      # absolute addresses.
-      ARROW_CMAKE_ARGS: "-DCMAKE_EXE_LINKER_FLAGS=-no-pie"
       ARROW_CSV: "OFF"
       ARROW_DATASET: "OFF"
       ARROW_DEPENDENCY_SOURCE: BUNDLED
@@ -528,6 +516,8 @@ services:
       ARROW_PARQUET: "OFF"
       ARROW_S3: "OFF"
       ARROW_SUBSTRAIT: "OFF"
+      # GH-49767: mold mislinks bundled gRPC 1.76 upb relocation tables on Linux
+      ARROW_USE_MOLD: "OFF"
     # Register ODBC before running tests
     command: >
       /bin/bash -c "
