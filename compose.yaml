@@ -504,6 +504,13 @@ services:
       ARROW_ACERO: "OFF"
       ARROW_AZURE: "OFF"
       ARROW_BUILD_TYPE: RELEASE
+      # GH-49767 workaround: gRPC v1.76.0 bundles Envoy proto descriptors
+      # that GCC places in .rodata while still emitting R_X86_64_RELATIVE
+      # relocations targeting them. Without DT_TEXTREL the dynamic linker
+      # cannot write to .rodata during _dl_relocate_object and crashes
+      # before main(). -Wl,-z,notext tells ld to emit DT_TEXTREL so ld.so
+      # marks .rodata writable for the relocation pass.
+      ARROW_CMAKE_ARGS: "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-z,notext -DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,notext"
       ARROW_CSV: "OFF"
       ARROW_DATASET: "OFF"
       ARROW_DEPENDENCY_SOURCE: BUNDLED

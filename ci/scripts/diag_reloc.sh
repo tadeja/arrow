@@ -87,4 +87,10 @@ for bin in arrow-flight-test arrow-flight-sql-test; do
       addr = h2d($4); size = h2d($6);
       printf "  %-24s Addr=%s  Size=%s  End=%016x\n", $2, $4, $6, addr+size
     }'
+
+  echo "--- PT_LOAD program headers (writable? contains symbol?) ---"
+  readelf -lW "$BIN" | awk '/LOAD/ { print "  " $0 }'
+
+  echo "--- DT_TEXTREL / DT_FLAGS in dynamic section ---"
+  readelf -d "$BIN" | grep -E "TEXTREL|FLAGS" || echo "(no TEXTREL / FLAGS entries)"
 done
