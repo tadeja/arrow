@@ -516,11 +516,8 @@ services:
       ARROW_PARQUET: "OFF"
       ARROW_S3: "OFF"
       ARROW_SUBSTRAIT: "OFF"
-      # GH-49767: Ubuntu 24.04 apt mold is 2.30.0, which crashes in
-      # _dl_relocate_object (rui314/mold#1247, fixed in 2.31.0). Keep
-      # mold enabled and install upstream 2.31.0 inline in the command
-      # below. Drop this workaround once mold is 2.31+.
-      ARROW_USE_MOLD: "ON"
+      # GH-49767: workaround for buggy apt mold 2.30.0
+      # see https://github.com/rui314/mold/issues/1247
       MOLD_URL: "https://github.com/rui314/mold/releases/download/v2.31.0/mold-2.31.0-x86_64-linux.tar.gz"
     # Register ODBC before running tests
     command: >
@@ -529,7 +526,6 @@ services:
         tar -C /tmp -xzf /tmp/mold.tgz &&
         sudo install -m 0755 /tmp/mold-*/bin/ld.mold /usr/local/bin/ &&
         export PATH=/usr/local/bin:$$PATH &&
-        ld.mold --version &&
         /arrow/ci/scripts/cpp_build.sh /arrow /build &&
         /arrow/ci/scripts/diag_reloc.sh /build ;
         sudo /arrow/cpp/src/arrow/flight/sql/odbc/install/unix/install_odbc.sh /usr/local/lib/libarrow_flight_sql_odbc.so &&
