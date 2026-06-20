@@ -908,8 +908,28 @@ class PyListConverter : public ListConverter<T, PyConverter, PyConverterTrait> {
 
   Status AppendNdarray(PyObject* value) {
     PyArrayObject* ndarray = reinterpret_cast<PyArrayObject*>(value);
+    OwnedRef flattened_ref;
     if (PyArray_NDIM(ndarray) != 1) {
-      return Status::Invalid("Can only convert 1-dimensional array values");
+      // A fixed-size list is the storage of a fixed shape tensor extension type.
+      // Allow building it from a multi-dimensional ndarray element by flattening
+      // the element in row-major (C) order, as long as its total number of
+      // elements matches the fixed list size. This makes it possible to convert
+      // a list of multi-dimensional arrays to a FixedShapeTensorArray.
+      if (this->type_->id() == Type::FIXED_SIZE_LIST &&
+          PyArray_SIZE(ndarray) ==
+              checked_cast<const FixedSizeListType&>(*this->type_).list_size()) {
+        flattened_ref.reset(PyArray_Ravel(ndarray, NPY_CORDER));
+        RETURN_NOT_OK(CheckPyError());
+        value = flattened_ref.obj();
+        ndarray = reinterpret_cast<PyArrayObject*>(value);
+      } else {
+        return Status::Invalid(
+            "Can only convert a multi-dimensional ndarray when "
+            "its total number of elements matches the fixed-size list size. "
+            "Got an ndarray with ",
+            PyArray_SIZE(ndarray), " elements (ndim=", PyArray_NDIM(ndarray),
+            ") for type ", this->type_->ToString());
+      }
     }
     if (PyArray_ISBYTESWAPPED(ndarray)) {
       // TODO

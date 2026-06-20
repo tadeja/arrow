@@ -1731,6 +1731,52 @@ def test_tensor_array_from_numpy(np_type_str):
 
 
 @pytest.mark.numpy
+@pytest.mark.parametrize("np_type_str", ("int8", "int64", "float32"))
+def test_tensor_array_from_list_of_numpy(np_type_str):
+    # GH-49644: pa.array() of a list of multi-dimensional ndarrays should
+    # build a FixedShapeTensorArray, flattening each element in row-major
+    # (C) order, just like a single stacked ndarray would.
+    dtype = np.dtype(np_type_str)
+    arrow_type = pa.from_numpy_dtype(dtype)
+
+    # 1-D (via fixed-size-list storage)
+    tensor_type = pa.fixed_shape_tensor(arrow_type, shape=(3,))
+    result = pa.array([np.array([1, 2, 3], dtype=dtype),
+                       np.array([2, 3, 4], dtype=dtype)], type=tensor_type)
+    assert result.type == tensor_type
+    assert len(result) == 2
+
+    # Multi-dimensional
+    elements = [np.array([[1, 2, 3], [4, 5, 6]], dtype=dtype),
+                np.array([[7, 8, 9], [10, 11, 12]], dtype=dtype)]
+    tensor_type = pa.fixed_shape_tensor(arrow_type, shape=(2, 3))
+    result = pa.array(elements, type=tensor_type)
+    assert result.type == tensor_type
+    assert len(result) == 2
+
+    # The result must match constructing from the equivalent stacked ndarray.
+    expected = pa.FixedShapeTensorArray.from_numpy_ndarray(np.stack(elements))
+    assert result.storage.equals(expected.storage)
+    np.testing.assert_array_equal(result.to_numpy_ndarray(),
+                                  np.stack(elements))
+
+    # Nulls are preserved alongside multi-dimensional elements.
+    result = pa.array([elements[0], None], type=tensor_type)
+    assert result.null_count == 1
+    np.testing.assert_array_equal(result[0].to_numpy(), elements[0])
+
+    # A non-contiguous (Fortran-order) element is still flattened row-major.
+    f_order = np.asfortranarray(elements[0])
+    result = pa.array([f_order], type=tensor_type)
+    np.testing.assert_array_equal(result[0].to_numpy(), elements[0])
+
+    # An element whose size does not match the fixed shape is rejected.
+    with pytest.raises(pa.lib.ArrowInvalid,
+                       match="Can only convert a multi-dimensional ndarray when "):
+        pa.array([np.array([[1, 2]], dtype=dtype)], type=tensor_type)
+
+
+@pytest.mark.numpy
 @pytest.mark.parametrize("tensor_type", (
     pa.fixed_shape_tensor(pa.int8(), [2, 2, 3]),
     pa.fixed_shape_tensor(pa.int8(), [2, 2, 3], permutation=[0, 2, 1]),
