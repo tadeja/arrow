@@ -53,6 +53,43 @@ cdef _sequence_to_array(object sequence, object mask, object size,
         return pyarrow_wrap_chunked_array(chunked)
 
 
+cdef _check_fixed_shape_tensor_input(obj, extension_type):
+    """
+    Validate ndarray elements when building a fixed shape tensor array from a
+    list of ndarrays.
+
+    Multi-dimensional elements are flattened row-major into the storage, so
+    their shape must match the tensor shape. Permuted tensor types are rejected
+    (row-major flattening would store the wrong layout); use
+    ``FixedShapeTensorArray.from_numpy_ndarray`` instead.
+    """
+    if np is None:
+        return
+    if extension_type.extension_name != "arrow.fixed_shape_tensor":
+        return
+    if not isinstance(obj, (list, tuple)):
+        return
+
+    shape = tuple(extension_type.shape)
+    permutation = extension_type.permutation
+    has_permutation = (permutation is not None and
+                       list(permutation) != list(range(len(shape))))
+
+    for element in obj:
+        if not isinstance(element, np.ndarray) or element.ndim < 2:
+            continue
+        if has_permutation:
+            raise ValueError(
+                "Cannot convert a list of multi-dimensional ndarrays to a "
+                "fixed_shape_tensor with a non-trivial permutation; use "
+                "FixedShapeTensorArray.from_numpy_ndarray instead.")
+        if element.shape != shape:
+            raise ValueError(
+                f"Cannot convert an ndarray of shape {element.shape} to a "
+                f"fixed_shape_tensor with shape {shape}: the ndarray shape "
+                "must match the tensor shape.")
+
+
 cdef inline _is_array_like(obj):
     if np is None:
         return False
@@ -266,6 +303,7 @@ def array(object obj, type=None, mask=None, size=None, from_pandas=None,
     if type is not None and type.id == _Type_EXTENSION:
         extension_type = type
         type = type.storage_type
+        _check_fixed_shape_tensor_input(obj, extension_type)
 
     if from_pandas is None:
         c_from_pandas = False
@@ -4689,6 +4727,31 @@ cdef class FixedShapeTensorArray(ExtensionArray):
         200,
         300,
         400
+      ]
+    ]
+
+
+    Create an extension array from a list of multi-dimensional NumPy arrays.
+    Each element is flattened in row-major (C) order, so its shape must match
+    the tensor shape.
+
+    >>> import numpy as np
+    >>> pa.array([np.array([[1, 2], [3, 4]], dtype=np.int32),
+    ...           np.array([[10, 20], [30, 40]], dtype=np.int32)],
+    ...          type=tensor_type)
+    <pyarrow.lib.FixedShapeTensorArray object at ...>
+    [
+      [
+        1,
+        2,
+        3,
+        4
+      ],
+      [
+        10,
+        20,
+        30,
+        40
       ]
     ]
     """

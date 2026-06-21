@@ -1754,7 +1754,7 @@ def test_tensor_array_from_list_of_numpy(np_type_str):
     assert result.type == tensor_type
     assert len(result) == 2
 
-    # The result must match constructing from the equivalent stacked ndarray.
+    # Matches constructing from the equivalent stacked ndarray.
     expected = pa.FixedShapeTensorArray.from_numpy_ndarray(np.stack(elements))
     assert result.storage.equals(expected.storage)
     np.testing.assert_array_equal(result.to_numpy_ndarray(),
@@ -1765,15 +1765,32 @@ def test_tensor_array_from_list_of_numpy(np_type_str):
     assert result.null_count == 1
     np.testing.assert_array_equal(result[0].to_numpy(), elements[0])
 
-    # A non-contiguous (Fortran-order) element is still flattened row-major.
+    # Fortran-order element is still flattened row-major.
     f_order = np.asfortranarray(elements[0])
     result = pa.array([f_order], type=tensor_type)
     np.testing.assert_array_equal(result[0].to_numpy(), elements[0])
 
-    # An element whose size does not match the fixed shape is rejected.
-    with pytest.raises(pa.lib.ArrowInvalid,
-                       match="Can only convert a multi-dimensional ndarray when "):
+    # Mismatched shape is rejected, whether the total size differs ...
+    with pytest.raises(ValueError,
+                       match="ndarray shape must match the tensor shape"):
         pa.array([np.array([[1, 2]], dtype=dtype)], type=tensor_type)
+    # ... or only the shape differs while the size matches.
+    with pytest.raises(ValueError,
+                       match="ndarray shape must match the tensor shape"):
+        pa.array([np.arange(6, dtype=dtype).reshape(3, 2)], type=tensor_type)
+
+    # Permuted tensor types can't be built from multi-dim ndarrays this way.
+    permuted_type = pa.fixed_shape_tensor(arrow_type, shape=(2, 3),
+                                          permutation=[1, 0])
+    with pytest.raises(ValueError, match="non-trivial permutation"):
+        pa.array(elements, type=permuted_type)
+
+    # An explicit identity permutation is trivial and still works.
+    identity_type = pa.fixed_shape_tensor(arrow_type, shape=(2, 3),
+                                          permutation=[0, 1])
+    result = pa.array(elements, type=identity_type)
+    assert result.type == identity_type
+    np.testing.assert_array_equal(result.to_numpy_ndarray(), np.stack(elements))
 
 
 @pytest.mark.numpy
