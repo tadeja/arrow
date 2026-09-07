@@ -64,6 +64,7 @@ RUN \
     libxxhash-dev \
     libzstd-dev \
     llvm-dev \
+    locales \
     lsb-release \
     meson \
     mold \
@@ -79,6 +80,7 @@ RUN \
     tzdata \
     valac \
     zlib1g-dev && \
+  localedef -i et_EE -f UTF-8 et_EE.UTF-8 && \
   # Ensure updating symlinks in /usr/lib/ccache/
   update-ccache-symlinks && \
   if apt list | grep -q '^libcuda'; then \

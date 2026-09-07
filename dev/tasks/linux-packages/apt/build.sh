@@ -36,7 +36,7 @@ run()
 umask "${UMASK}"
 
 if [ -n "${CPU_LIST:-}" ]; then
-  taskset -a -c "${CPU_LIST}"
+  run taskset -a -p -c "${CPU_LIST}" "$$"
 fi
 
 if [ -n "${FAKETIME:-}" ]; then

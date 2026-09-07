@@ -37,6 +37,8 @@ RUN \
     fakeroot \
     gnupg \
     libfaketime \
+    locales \
     lsb-release && \
+  localedef -i et_EE -f UTF-8 et_EE.UTF-8 && \
   apt clean && \
   rm -rf /var/lib/apt/lists/*
