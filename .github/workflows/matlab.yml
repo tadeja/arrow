@@ -172,6 +172,23 @@ jobs:
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
           bash -c "ci/scripts/matlab_build.sh $(pwd)"
+      - name: Debug hashFiles inputs (temp)
+        if: always()
+        shell: pwsh
+        run: |
+          $root = Join-Path $PWD "matlab/build"
+          $links = @(Get-ChildItem -Path $root -Recurse -Force -Attributes ReparsePoint -ErrorAction SilentlyContinue)
+          Write-Host "== review under matlab/build: $($links.Count)"
+          foreach ($l in $links) {
+            Write-Host "$($l.FullName) -> $($l.Target) [$($l.LinkType)] container=$($l.PSIsContainer)"
+            # Same call as in the hashFiles script before file read
+            node -e "try { const s = require('fs').statSync(process.argv[1]); console.log('   node statSync OK, isDirectory=' + s.isDirectory()) } catch (e) { console.log('   node statSync FAILED: ' + e.code + ' ' + e.message) }" $l.FullName
+          }
+          Write-Host "== 5 longest paths under matlab/build"
+          Get-ChildItem -Path $root -Recurse -Force -File -ErrorAction SilentlyContinue |
+            Sort-Object { $_.FullName.Length } -Descending |
+            Select-Object -First 5 |
+            ForEach-Object { Write-Host "$($_.FullName.Length) $($_.FullName)" }
       - name: Run MATLAB Tests
         env:
           # Add the installation directory to the MATLAB Search Path by
