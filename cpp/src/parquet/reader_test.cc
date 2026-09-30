@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <functional>
@@ -1121,6 +1122,64 @@ class TestJSONWithLocalFile : public ::testing::Test {
 
     return ss.str();
   }
+
+  // The pretty-print layout (whitespace, line breaks, key order in tables)
+  // depends on the simdjson version, so compare JSON after normalizing it
+  // to a compact form with sorted object keys.
+  static std::string CanonicalJson(std::string_view json) {
+    simdjson::dom::parser parser;
+    simdjson::padded_string padded(json);
+    simdjson::dom::element doc;
+    auto error = parser.parse(padded).get(doc);
+    EXPECT_EQ(error, simdjson::SUCCESS)
+        << simdjson::error_message(error) << " in JSON: " << json;
+    if (error) {
+      return "";
+    }
+    ::arrow::internal::JsonWriter writer;
+    WriteCanonicalJson(doc, &writer);
+    return std::string(writer.GetString().ValueOrDie());
+  }
+
+  // Strips whitespace outside of JSON strings. Unlike CanonicalJson(), this
+  // does not require valid UTF-8.
+  static std::string MinifyJson(std::string_view json) {
+    std::string out(json.size(), '\0');
+    size_t out_size = 0;
+    EXPECT_EQ(simdjson::minify(json.data(), json.size(), out.data(), out_size),
+              simdjson::SUCCESS);
+    out.resize(out_size);
+    return out;
+  }
+
+ private:
+  static void WriteCanonicalJson(simdjson::dom::element value,
+                                 ::arrow::internal::JsonWriter* writer) {
+    simdjson::dom::object object;
+    simdjson::dom::array array;
+    if (value.get(object) == simdjson::SUCCESS) {
+      std::vector<std::pair<std::string_view, simdjson::dom::element>> fields;
+      for (auto field : object) {
+        fields.emplace_back(field.key, field.value);
+      }
+      std::sort(fields.begin(), fields.end(),
+                [](const auto& a, const auto& b) { return a.first < b.first; });
+      writer->StartObject();
+      for (const auto& [key, field_value] : fields) {
+        writer->Key(key);
+        WriteCanonicalJson(field_value, writer);
+      }
+      writer->EndObject();
+    } else if (value.get(array) == simdjson::SUCCESS) {
+      writer->StartArray();
+      for (auto element : array) {
+        WriteCanonicalJson(element, writer);
+      }
+      writer->EndArray();
+    } else {
+      writer->RawValue(simdjson::minify(value));
+    }
+  }
 };
 
 TEST_F(TestJSONWithLocalFile, JSONOutputWithStatistics) {
@@ -1187,7 +1246,7 @@ TEST_F(TestJSONWithLocalFile, JSONOutputWithStatistics) {
 )###";
 
   std::string json_content = ReadFromLocalFile("nested_lists.snappy.parquet");
-  ASSERT_EQ(json_output, json_content);
+  ASSERT_EQ(CanonicalJson(json_output), CanonicalJson(json_content));
 }
 
 TEST_F(TestJSONWithLocalFile, JSONOutput) {
@@ -1237,41 +1296,41 @@ TEST_F(TestJSONWithLocalFile, JSONOutput) {
 )###";
 
   std::string json_content = ReadFromLocalFile("alltypes_plain.parquet");
-  ASSERT_EQ(json_output, json_content);
+  ASSERT_EQ(CanonicalJson(json_output), CanonicalJson(json_content));
 }
 
 TEST_F(TestJSONWithLocalFile, JSONOutputFLBA) {
-  // min-max stats for FLBA contains non-utf8 output, so we don't check
-  // the whole json output.
-  std::string json_content = ReadFromLocalFile("fixed_length_byte_array.parquet");
+  // min-max stats for FLBA contains non-utf8 output, so we can't parse
+  // the whole json output and check individual fields instead.
+  std::string json_content =
+      MinifyJson(ReadFromLocalFile("fixed_length_byte_array.parquet"));
 
-  std::string json_contains = R"###({
-    "FileName": "fixed_length_byte_array.parquet",
-    "Version": "1.0",
-    "CreatedBy": "parquet-mr version 1.13.0-SNAPSHOT (build d057b39d93014fe40f5067ee4a33621e65c91552)",
-    "TotalRows": "1000",
-    "NumberOfRowGroups": "1",
-    "NumberOfRealColumns": "1",
-    "NumberOfColumns": "1",
-    "Columns": [
-        {
-            "Id": "0",
-            "Name": "flba_field",
-            "PhysicalType": "FIXED_LEN_BYTE_ARRAY(4)",
-            "ConvertedType": "NONE",
-            "LogicalType": { "Type": "None" }
-        }
-    ],)###";
-
-  EXPECT_THAT(json_content, testing::HasSubstr(json_contains));
+  std::vector<std::string> expected_fields = {
+      R"###("FileName":"fixed_length_byte_array.parquet")###",
+      R"###("Version":"1.0")###",
+      R"###("CreatedBy":"parquet-mr version 1.13.0-SNAPSHOT (build d057b39d93014fe40f5067ee4a33621e65c91552)")###",
+      R"###("TotalRows":"1000")###",
+      R"###("NumberOfRowGroups":"1")###",
+      R"###("NumberOfRealColumns":"1")###",
+      R"###("NumberOfColumns":"1")###",
+      R"###("Name":"flba_field")###",
+      R"###("PhysicalType":"FIXED_LEN_BYTE_ARRAY(4)")###",
+      R"###("ConvertedType":"NONE")###",
+      R"###("LogicalType":{"Type":"None"})###"};
+  for (const auto& field : expected_fields) {
+    EXPECT_THAT(json_content, testing::HasSubstr(field));
+  }
 }
 
 TEST_F(TestJSONWithLocalFile, JSONOutputSortColumns) {
-  std::string json_content = ReadFromLocalFile("sort_columns.parquet");
+  std::string json_content = CanonicalJson(ReadFromLocalFile("sort_columns.parquet"));
 
-  std::string json_contains = R"###("SortColumns": [
-                { "column_idx": 0, "descending": 1, "nulls_first": 1 }, { "column_idx": 1, "descending": 0, "nulls_first": 0 }
-            ],)###";
+  std::string json_contains = CanonicalJson(R"###({"SortColumns": [
+      { "column_idx": 0, "descending": 1, "nulls_first": 1 },
+      { "column_idx": 1, "descending": 0, "nulls_first": 0 }
+  ]})###");
+  // Strip the enclosing braces to match the field inside a row group.
+  json_contains = json_contains.substr(1, json_contains.size() - 2);
   EXPECT_THAT(json_content, testing::HasSubstr(json_contains));
 }
 
