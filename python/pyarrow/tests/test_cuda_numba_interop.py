@@ -22,6 +22,11 @@ try:
 except ImportError:
     pytestmark = pytest.mark.numpy
 
+pytest.skip(
+    "Numba CUDA interoperability is pending deprecation (GH-51204)",
+    allow_module_level=True,
+)
+
 dtypes = ['uint8', 'int16', 'float32']
 cuda = pytest.importorskip("pyarrow.cuda", exc_type=ImportError)
 nb_cuda = pytest.importorskip("numba.cuda")
